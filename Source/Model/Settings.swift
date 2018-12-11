@@ -27,6 +27,7 @@ The settings object that gets passed around between classes for keeping...settin
 */
 final class Settings : BSImagePickerSettings {
     var maxNumberOfSelections: Int = Int.max
+    var allowsEmptySelection: Bool = false
     var selectionCharacter: Character? = nil
     var selectionFillColor: UIColor = UIView().tintColor
     var selectionStrokeColor: UIColor = UIColor.white
@@ -58,4 +59,8 @@ final class Settings : BSImagePickerSettings {
     var takePhotos: Bool = false
     
     var takePhotoIcon: UIImage? = UIImage(named: "add_photo", in: BSImagePickerViewController.bundle, compatibleWith: nil)
+
+    var takePhotoIconTintColor: UIColor? = nil
+
+    var cameraLivePreviewOverlayAlpha: CGFloat = 0
 }

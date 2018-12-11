@@ -54,18 +54,22 @@ final class PhotosViewController : UICollectionViewController {
     @objc var doneBarButton: UIBarButtonItem?
     @objc var cancelBarButton: UIBarButtonItem?
     @objc var albumTitleView: UIButton?
+
+    @objc var cameraUnauthorizedViewController: UIViewController?
     
     @objc let expandAnimator = ZoomAnimator()
     @objc let shrinkAnimator = ZoomAnimator()
     
     fileprivate var photosDataSource: PhotoCollectionViewDataSource?
-    fileprivate var albumsDataSource: AlbumTableViewDataSource
-    fileprivate let cameraDataSource: CameraCollectionViewDataSource
+    var albumsDataSource: AlbumTableViewDataSource?
+    fileprivate var cameraDataSource: CameraCollectionViewDataSource
     fileprivate var composedDataSource: ComposedCollectionViewDataSource?
     
     fileprivate var defaultSelections: PHFetchResult<PHAsset>?
     
     let settings: BSImagePickerSettings
+
+    fileprivate let skipBarButtonTitle: String = NSLocalizedString("Skip", comment: "Skip")
     
     fileprivate let doneBarButtonTitle: String = NSLocalizedString("Done", comment: "Done")
     
@@ -82,8 +86,7 @@ final class PhotosViewController : UICollectionViewController {
         return PreviewViewController(nibName: nil, bundle: nil)
     }()
     
-    required init(fetchResults: [PHFetchResult<PHAssetCollection>], defaultSelections: PHFetchResult<PHAsset>? = nil, settings aSettings: BSImagePickerSettings) {
-        albumsDataSource = AlbumTableViewDataSource(fetchResults: fetchResults)
+    required init(defaultSelections: PHFetchResult<PHAsset>? = nil, settings aSettings: BSImagePickerSettings) {
         cameraDataSource = CameraCollectionViewDataSource(settings: aSettings, cameraAvailable: UIImagePickerController.isSourceTypeAvailable(.camera))
         self.defaultSelections = defaultSelections
         settings = aSettings
@@ -121,7 +124,7 @@ final class PhotosViewController : UICollectionViewController {
         navigationItem.rightBarButtonItem = doneBarButton
         navigationItem.titleView = albumTitleView
 
-        if let album = albumsDataSource.fetchResults.first?.firstObject {
+        if let album = albumsDataSource?.fetchResults.first?.firstObject {
             initializePhotosDataSource(album, selections: defaultSelections)
             updateAlbumTitle(album)
             collectionView?.reloadData()
@@ -153,11 +156,8 @@ final class PhotosViewController : UICollectionViewController {
             dismiss(animated: true, completion: nil)
             return
         }
-        DispatchQueue.global().async {
-            closure(photosDataSource.selections)
-        }
-        
-        dismiss(animated: true, completion: nil)
+
+        closure(photosDataSource.selections)
     }
     
     @objc func doneButtonPressed(_ sender: UIBarButtonItem) {
@@ -165,12 +165,8 @@ final class PhotosViewController : UICollectionViewController {
             dismiss(animated: true, completion: nil)
             return
         }
-        
-        DispatchQueue.global().async {
-            closure(photosDataSource.selections)
-        }
-        
-        dismiss(animated: true, completion: nil)
+
+        closure(photosDataSource.selections)
     }
     
     @objc func albumButtonPressed(_ sender: UIButton) {
@@ -234,12 +230,14 @@ final class PhotosViewController : UICollectionViewController {
 
         if photosDataSource.selections.count > 0 {
             doneBarButton = UIBarButtonItem(title: "\(doneBarButtonTitle) (\(photosDataSource.selections.count))", style: .done, target: doneBarButton?.target, action: doneBarButton?.action)
+        } else if settings.allowsEmptySelection {
+            doneBarButton = UIBarButtonItem(title: skipBarButtonTitle, style: .done, target: doneBarButton?.target, action: doneBarButton?.action)
         } else {
             doneBarButton = UIBarButtonItem(title: doneBarButtonTitle, style: .done, target: doneBarButton?.target, action: doneBarButton?.action)
         }
 
         // Enabled?
-        doneBarButton?.isEnabled = photosDataSource.selections.count > 0
+        doneBarButton?.isEnabled = settings.allowsEmptySelection || photosDataSource.selections.count > 0
 
         navigationItem.rightBarButtonItem = doneBarButton
     }
@@ -248,6 +246,7 @@ final class PhotosViewController : UICollectionViewController {
         guard let title = album.localizedTitle else { return }
         // Update album title
         albumTitleView?.setAlbumTitle(title)
+        albumTitleView?.sizeToFit()
     }
     
   @objc func initializePhotosDataSource(_ album: PHAssetCollection, selections: PHFetchResult<PHAsset>? = nil) {
@@ -287,6 +286,11 @@ extension PhotosViewController {
 
         // Camera shouldn't be selected, but pop the UIImagePickerController!
         if let composedDataSource = composedDataSource , composedDataSource.dataSources[indexPath.section].isEqual(cameraDataSource) {
+            if [.denied, .restricted].contains(AVCaptureDevice.authorizationStatus(for: .video)), let viewController = cameraUnauthorizedViewController {
+                self.present(viewController, animated: true, completion: nil)
+                return false
+            }
+
             let cameraController = UIImagePickerController()
             cameraController.allowsEditing = false
             cameraController.sourceType = .camera
@@ -328,9 +332,7 @@ extension PhotosViewController {
 
             // Call deselection closure
             if let closure = deselectionClosure {
-                DispatchQueue.global().async {
-                    closure(asset)
-                }
+                closure(asset)
             }
         } else if photosDataSource.selections.count < settings.maxNumberOfSelections { // Select
             // Select asset if not already selected
@@ -350,15 +352,11 @@ extension PhotosViewController {
 
             // Call selection closure
             if let closure = selectionClosure {
-                DispatchQueue.global().async {
-                    closure(asset)
-                }
+                closure(asset)
             }
         } else if photosDataSource.selections.count >= settings.maxNumberOfSelections,
             let closure = selectLimitReachedClosure {
-            DispatchQueue.global().async {
-                closure(self.settings.maxNumberOfSelections)
-            }
+            closure(self.settings.maxNumberOfSelections)
         }
 
         return false
@@ -398,7 +396,7 @@ extension PhotosViewController: UINavigationControllerDelegate {
 extension PhotosViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         // Update photos data source
-        let album = albumsDataSource.fetchResults[indexPath.section][indexPath.row]
+        guard let album = albumsDataSource?.fetchResults[indexPath.section][indexPath.row] else { return }
         initializePhotosDataSource(album)
         updateAlbumTitle(album)
         collectionView?.reloadData()
@@ -450,12 +448,12 @@ let info = convertFromUIImagePickerControllerInfoKeyDictionary(info)
                 
                 DispatchQueue.main.async {
                     // TODO: move to a function. this is duplicated in didSelect
-                    self.photosDataSource?.selections.append(asset)
-                    self.updateDoneButton()
-                    
-                    // Call selection closure
-                    if let closure = self.selectionClosure {
-                        DispatchQueue.global().async {
+                    if let selectionsCount = self.photosDataSource?.selections.count, selectionsCount < self.settings.maxNumberOfSelections {
+                        self.photosDataSource?.selections.append(asset)
+                        self.updateDoneButton()
+
+                        // Call selection closure
+                        if let closure = self.selectionClosure {
                             closure(asset)
                         }
                     }

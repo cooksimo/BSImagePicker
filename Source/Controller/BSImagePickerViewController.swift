@@ -47,6 +47,8 @@ open class BSImagePickerViewController : UINavigationController {
      Default selections
      */
     @objc open var defaultSelections: PHFetchResult<PHAsset>?
+
+    @objc open var unauthorizedViewController: UIViewController?
     
     /**
      Fetch results.
@@ -63,6 +65,15 @@ open class BSImagePickerViewController : UINavigationController {
         
         return [cameraRollResult, albumResult]
     }()
+
+    @objc open var cameraUnauthorizedViewController: UIViewController? {
+        get {
+            return photosViewController.cameraUnauthorizedViewController
+        }
+        set {
+            photosViewController.cameraUnauthorizedViewController = newValue
+        }
+    }
     
     @objc var albumTitleView: UIButton = {
         let btn =  UIButton(frame: .zero)
@@ -73,8 +84,7 @@ open class BSImagePickerViewController : UINavigationController {
     @objc static let bundle: Bundle = Bundle(path: Bundle(for: PhotosViewController.self).path(forResource: "BSImagePicker", ofType: "bundle")!)!
     
     @objc lazy var photosViewController: PhotosViewController = {
-        let vc = PhotosViewController(fetchResults: self.fetchResults,
-                                      defaultSelections: self.defaultSelections,
+        let vc = PhotosViewController(defaultSelections: self.defaultSelections,
                                       settings: self.settings)
         
         vc.doneBarButton = self.doneButton
@@ -128,7 +138,19 @@ open class BSImagePickerViewController : UINavigationController {
         
         // Make sure we really are authorized
         if PHPhotoLibrary.authorizationStatus() == .authorized {
+            photosViewController.albumsDataSource = AlbumTableViewDataSource(fetchResults: fetchResults)
             setViewControllers([photosViewController], animated: false)
+        } else if let viewController = unauthorizedViewController {
+            setViewControllers([viewController], animated: false)
+        }
+
+        if PHPhotoLibrary.authorizationStatus() == .notDetermined {
+            BSImagePickerViewController.authorize(fromViewController: self) { [weak self] authorized in
+                if authorized, let controller = self?.photosViewController, let fetchResults = self?.fetchResults {
+                    controller.albumsDataSource = AlbumTableViewDataSource(fetchResults: fetchResults)
+                    self?.setViewControllers([controller], animated: false)
+                }
+            }
         }
     }
 }
@@ -146,6 +168,18 @@ extension BSImagePickerViewController: BSImagePickerSettings {
         }
         set {
             settings.maxNumberOfSelections = newValue
+        }
+    }
+
+    /**
+     See BSImagePicketSettings for documentation
+     */
+    @objc public var allowsEmptySelection: Bool {
+        get {
+            return settings.allowsEmptySelection
+        }
+        set {
+            settings.allowsEmptySelection = newValue
         }
     }
     
@@ -251,6 +285,24 @@ extension BSImagePickerViewController: BSImagePickerSettings {
         }
         set {
             settings.takePhotoIcon = newValue
+        }
+    }
+
+    @objc public var takePhotoIconTintColor: UIColor? {
+        get {
+            return settings.takePhotoIconTintColor
+        }
+        set {
+            settings.takePhotoIconTintColor = newValue
+        }
+    }
+
+    @objc public var cameraLivePreviewOverlayAlpha: CGFloat {
+        get {
+            return settings.cameraLivePreviewOverlayAlpha
+        }
+        set {
+            settings.cameraLivePreviewOverlayAlpha = newValue
         }
     }
 }

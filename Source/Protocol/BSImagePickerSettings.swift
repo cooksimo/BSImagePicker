@@ -30,6 +30,12 @@ public protocol BSImagePickerSettings {
     Max number of images user can select
     */
     var maxNumberOfSelections: Int { get set }
+
+    /**
+     When set to `true` and user hasn't selected any photo, right navigation bar
+     shows 'Skip' instead of grey out 'Done'.
+     */
+    var allowsEmptySelection: Bool { get set }
     
     /**
     Character to use for selection. If nil, selection number will be used
@@ -76,4 +82,11 @@ public protocol BSImagePickerSettings {
      If you use a black image tint color will be applied to it.
     */
     var takePhotoIcon: UIImage? { get set }
+
+    var takePhotoIconTintColor: UIColor? { get set }
+
+    /**
+     Alpha value of live camera view overlay's background color.
+     */
+    var cameraLivePreviewOverlayAlpha: CGFloat { get set }
 }
